@@ -51,6 +51,9 @@ export const Welcome: React.FC = () => {
     const practiceWordsRef = useRef<string[]>([])
     const practiceIndexRef = useRef(0)
     const isPracticeHydratingRef = useRef(false)
+    const boundaryEventSeenRef = useRef(false)
+    const highlightIntervalRef = useRef<number | null>(null)
+    const highlightKickoffRef = useRef<number | null>(null)
 
     const currentVerse = data[currentIndex]
 
@@ -162,15 +165,27 @@ export const Welcome: React.FC = () => {
         writePracticeStore(store)
     }, [currentVerse, getVerseKey, practiceResults, readPracticeStore, writePracticeStore])
 
+    const clearSpeechTimers = useCallback(() => {
+        if (highlightKickoffRef.current !== null) {
+            window.clearTimeout(highlightKickoffRef.current)
+            highlightKickoffRef.current = null
+        }
+        if (highlightIntervalRef.current !== null) {
+            window.clearInterval(highlightIntervalRef.current)
+            highlightIntervalRef.current = null
+        }
+    }, [])
+
     const stopSpeaking = useCallback(() => {
         speechSessionIdRef.current += 1
+        clearSpeechTimers()
         window.speechSynthesis.cancel()
         setSpeakingLang(null)
         setIsPaused(false)
         setActiveWordIndex(-1)
         setActiveOtherWordIndex(-1)
         currentLangRef.current = null
-    }, [])
+    }, [clearSpeechTimers])
 
     const updateMappedIndex = useCallback((wordIndex: number) => {
         const spokenWords = spokenWordsRef.current
@@ -313,6 +328,8 @@ export const Welcome: React.FC = () => {
         const sessionId = speechSessionIdRef.current
 
         window.speechSynthesis.cancel()
+        clearSpeechTimers()
+        boundaryEventSeenRef.current = false
 
         const spokenWords = text.split(/\s+/).filter(Boolean)
         const otherWords = otherText.split(/\s+/).filter(Boolean)
@@ -342,8 +359,41 @@ export const Welcome: React.FC = () => {
         setActiveWordIndex(clampedStart)
         updateMappedIndex(clampedStart)
 
+        const startFallbackHighlighting = () => {
+            if (utterWords.length <= 1) return
+            const baseDuration = 450
+            const wordDurationMs = baseDuration / Math.max(0.5, speechRate)
+            let index = clampedStart
+            highlightIntervalRef.current = window.setInterval(() => {
+                if (speechSessionIdRef.current !== sessionId) {
+                    clearSpeechTimers()
+                    return
+                }
+                index += 1
+                if (index >= spokenWords.length) {
+                    clearSpeechTimers()
+                    return
+                }
+                setActiveWordIndex(index)
+                updateMappedIndex(index)
+                if (index >= clampedStart + utterWords.length - 1) {
+                    clearSpeechTimers()
+                }
+            }, wordDurationMs)
+        }
+
+        highlightKickoffRef.current = window.setTimeout(() => {
+            if (!boundaryEventSeenRef.current && !isPaused) {
+                startFallbackHighlighting()
+            }
+        }, 800)
+
         utterance.onboundary = (event: SpeechSynthesisEvent) => {
             if (event.name !== 'word') return
+            if (!boundaryEventSeenRef.current) {
+                boundaryEventSeenRef.current = true
+                clearSpeechTimers()
+            }
             const charIndex = event.charIndex
             let localWordIndex = 0
             let pos = 0
@@ -363,6 +413,7 @@ export const Welcome: React.FC = () => {
 
         utterance.onend = () => {
             if (speechSessionIdRef.current !== sessionId) return
+            clearSpeechTimers()
             if (isAutoContinueRef.current) {
                 const nextIndex = baseVerseIndex + 1
                 const nextVerse = data[nextIndex]
@@ -388,6 +439,7 @@ export const Welcome: React.FC = () => {
         }
         utterance.onerror = () => {
             if (speechSessionIdRef.current !== sessionId) return
+            clearSpeechTimers()
             setSpeakingLang(null)
             setIsPaused(false)
             setActiveWordIndex(-1)
@@ -396,7 +448,7 @@ export const Welcome: React.FC = () => {
         }
 
         window.speechSynthesis.speak(utterance)
-    }, [currentIndex, data, getVoiceForLang, getVerseTexts, speechRate, stopSpeaking, updateMappedIndex])
+    }, [clearSpeechTimers, currentIndex, data, getVoiceForLang, getVerseTexts, isPaused, speechRate, stopSpeaking, updateMappedIndex])
 
     const speak = useCallback((text: string, lang: string, otherText: string) => {
         if (speakingLang !== null && speakingLang !== lang) {
@@ -421,10 +473,11 @@ export const Welcome: React.FC = () => {
                 currentIndex
             )
         } else {
+            clearSpeechTimers()
             window.speechSynthesis.pause()
             setIsPaused(true)
         }
-    }, [activeWordIndex, currentIndex, isPaused, speakingLang, startSpeakingFromIndex])
+    }, [activeWordIndex, clearSpeechTimers, currentIndex, isPaused, speakingLang, startSpeakingFromIndex])
 
     const speakSingleWord = useCallback((word: string, lang: string) => {
         if (!word) return
@@ -443,6 +496,7 @@ export const Welcome: React.FC = () => {
 
         speechSessionIdRef.current += 1
         window.speechSynthesis.cancel()
+        clearSpeechTimers()
         setIsPaused(true)
 
         const maxIndex = words.length - 1
@@ -593,7 +647,7 @@ export const Welcome: React.FC = () => {
         <div className={`App ${isLightMode ? 'theme-light' : 'theme-dark'}`}>
             <header className="app-header">
                 <div className="header-brand">
-                    <img src="/app-icon.svg" alt="Original Manuscripts" className="header-icon" />
+                    <img src={`${process.env.PUBLIC_URL}/app-icon.svg`} alt="Original Manuscripts" className="header-icon" />
                     <h1>Original Manuscripts</h1>
                 </div>
                 <div className="header-actions">

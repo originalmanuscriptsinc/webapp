@@ -18,6 +18,7 @@ const PRACTICE_STORAGE_KEY = 'practiceResultsByVerse'
 
 export const Welcome: React.FC = () => {
     const [data, setData] = useState<any[]>([])
+    const [dataError, setDataError] = useState<string | null>(null)
     const [currentIndex, setCurrentIndex] = useState(0)
     const [isNavOpen, setIsNavOpen] = useState(false)
     const [isLightMode, setIsLightMode] = useState(false)
@@ -94,8 +95,14 @@ export const Welcome: React.FC = () => {
     }, [])
 
     useEffect(() => {
-        fetch('/aligned_kjv_greek.csv')
-            .then((response) => response.text())
+        const csvUrl = `${process.env.PUBLIC_URL}/aligned_kjv_greek.csv`
+        fetch(csvUrl)
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error(`Failed to load CSV (${response.status})`)
+                }
+                return response.text()
+            })
             .then((csvText) => {
                 Papa.parse(csvText, {
                     header: true,
@@ -104,8 +111,13 @@ export const Welcome: React.FC = () => {
                             (row: any) => row.verse && row.Text
                         )
                         setData(filtered)
+                        setDataError(null)
                     },
                 })
+            })
+            .catch((error) => {
+                const message = error instanceof Error ? error.message : 'Failed to load data'
+                setDataError(message)
             })
     }, [])
 
@@ -660,7 +672,9 @@ export const Welcome: React.FC = () => {
                     </div>
                 </aside>
                 <div className="viewer">
-                    {currentVerse ? (
+                    {dataError ? (
+                        <p>{dataError}</p>
+                    ) : currentVerse ? (
                         <>
                             <div className="verse-selector">
                                 <select

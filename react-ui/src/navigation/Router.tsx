@@ -4,7 +4,7 @@ import { Routes as AppRoutes } from './routes'
 
 export const Router: FC = () => {
     return (
-        <BrowserRouter>
+        <BrowserRouter basename={process.env.PUBLIC_URL}>
             <Routes>
                 {AppRoutes.map((route) => (
                     <Route
